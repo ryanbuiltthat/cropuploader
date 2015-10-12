@@ -87,6 +87,14 @@ CropUploader = {
 		rotate: function() {
 			var self = this;
 			self.template.cropimage.cropper('rotate',90);
+		},
+		reset: function() {
+			var self = this;
+			self.template.cropimage.cropper('reset');
+		},
+		clear: function(){
+			var self = this;
+			self.template.cropimage.cropper('clear');
 		}
 	},
 	init: function(name, directory, consolidate) {

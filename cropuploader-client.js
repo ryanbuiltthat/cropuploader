@@ -13,6 +13,16 @@ Template.cropUploader.onRendered(function () {
   this.thumbnailHeight = template.data.thumbnailHeight || undefined;
   this.canvasID = template.data.canvasID || undefined;
   this.thumbnailID = template.data.thumbnailID || undefined;
+  /**
+   * I need to be able to product multiple copies of a source image.
+   * A compressed fullscale copy, 4:3 cropped for the gallery and menu
+   * and a thumbnail, later on I'll add social sizes too....
+   *
+   * So let's pass in a dierivative name for our first pass. Down the line we'll use a session
+   * variable to change our derivative name in the cropper along with our aspect ratio :)
+   * @type {undefined|*}
+   */
+  this.derivativeName = template.data.derivativeName || undefined;
 
   if(this.canvasID == undefined) this.canvasID = 'thumbnail_canvas';
   if(this.thumbnailID == undefined) this.thumbnailID = 'thumbnail_img';
@@ -143,7 +153,17 @@ Template.cropUploader.events({
             //
             // set the name which will get used in the uploader/key function
             //
-            blob.name = 'derivative/thumbnail/';
+
+            /**
+             * Let's swap this out for our template-level variable we
+             * defined earlier above. The goal here is to keep an orderly structure on the S3
+             * while producing multiple versions of one image.
+             * @type {string}
+             */
+            //blob.name = 'derivative/thumbnail/';
+            blob.name = 'derivative/'+template.derivativeName+'/';
+
+
 
             uploader.send(blob, function (error, thumbnailUrl) {
               if (error) {
@@ -174,8 +194,24 @@ Template.cropUploader.events({
                     //
                     // add our derivatives
                     //
+
+                    /**
+                     * Right now (because I'm way overdue on sleep) I have to
+                     * set my main derivative since my 4:3 crop is used in more places
+                     * than the fullscale or thumbnail, I'll use that as my initial call.
+                     *
+                     * But because it's not a thumbnail, we need to also make the derivative property
+                     * dynamic.
+                     *
+                     * I think eventually just passing an array or object through will be better for creating all of the versions I need on initial
+                     * upload, then if we need to adjust a crop we can...brilliant!
+                     *
+                     * Apologies if this is improper syntax..like I said, it's late!
+                     * @type {{thumbnail: *}}
+                     */
+                    var dername = template.derivativeName;
                     image.derivatives = {
-                      thumbnail: thumbnailUrl
+                      [dername]: thumbnailUrl
                     };
                     if(template.addons)
                       image = _.extend(image, template.addons);
@@ -199,7 +235,7 @@ Template.cropUploader.events({
       //
       template.reader.readAsDataURL(image);
     } else CropUploader.errorMessage.set('Please select file first');
-  },
+  }
 });
 Template.cropUploaderImages.onRendered(function(){
   //
@@ -246,7 +282,9 @@ Template.cropUploaderCropper.onCreated(function () {
     if(!template.original) throw new Meteor.Error(403, 'image not found');
     template.uuid = template.original.url.split('/').pop().split('.').shift();
     template.thumbnailWidth = template.data.thumbnailWidth || undefined;
+      //console.log("[template.thumbnailWidth] "+template.thumbnailWidth);
     template.thumbnailHeight = template.data.thumbnailHeight || undefined;
+      //console.log("[template.thumbnailHeight] "+template.thumbnailHeight);
 
     if(template.thumbnailHeight == undefined && template.thumbnailWidth == undefined)
     {
@@ -262,32 +300,46 @@ Template.cropUploaderCropper.onCreated(function () {
     //     height: template.cropimage[0].height
     //   };
     // };
-    var options = {
-      aspectRatio: 1.0,
-      resizable: true,
-      rotatable: true,
-      // checkImageOrigin: false,
-      preview: ".img-preview",
-      data: {
+
+    /**
+     * Set cropper options to a template object or a default set.
+     * @type {*|{aspectRatio: number, resizable: boolean, rotatable: boolean}}
+     */
+    var options = template.data.options || {
+          aspectRatio: 1.0,
+          resizable: true,
+          rotatable: true,
+          // checkImageOrigin: false,
+        };
+    options.preview = ".img-preview";
+    options.data = {
         x: 10,
         y: 10,
         width: template.thumbnailWidth,
         height: template.thumbnailHeight
-      },
+      };
+      console.log("opts w "+options.data.width);
+      console.log("opts h "+options.data.height);
       // dragend: function() {
       //   console.log('dragend');
       // },
-      built: function() {
+      options.built = function() {
         // this is image
         console.log('cropper built' );
+          /**
+           * In my UI I'm using a few tabs for things...it'll probably change but this
+           * can still come in handy. Basically I need to know when the cropper is ready.
+           * So let's set a session variable to keep track
+           */
+          Session.set('crprRdy', true);
         template.$('button.hidden').removeClass('hidden');
         //
         // this will distort getDataURL
         //
         // if(template.data.exif.Orientation && template.data.exif.Orientation == 'bottom-right')
         //   template.$('img').addClass(template.data.exif.Orientation);
-      }
-    };
+      };
+    //};
     // add the checkImageOrigin for AppleWebKit
     // if(isWebKit) options['checkImageOrigin'] = true;//'Anonymous';
     //
@@ -302,12 +354,15 @@ Template.cropUploaderCropper.onRendered(function () {
       canvas = document.createElement("canvas"),
       ctx = canvas.getContext("2d"),
       src = template.data.url; // insert image url here
+      // Just need to make sure we tell our app we're not ready yet
+    Session.set('crprRdy', false);
 
   img.crossOrigin = "Anonymous";
 
   img.onload = function() {
       canvas.width = img.width;
       canvas.height = img.height;
+      console.log("canvas is: "+canvas.width+" x "+canvas.height);
       ctx.drawImage( img, 0, 0 );
       var dataUrl = canvas.toDataURL("image/png");
       // localStorage.setItem( "savedImageData", dataUrl );
